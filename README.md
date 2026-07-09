@@ -106,10 +106,6 @@ In summary: eksctl creates the platform. kubectl runs the applications on the pl
 ![Image](http://nextwork.ai/fulfilled_turquoise_beautiful_bear/uploads/aws-compute-eks4_6cfb382f2)
 
 ---
-
-## Verifying Deployment
-
----
 ## Author
 
 **Lindokuhle Sithole** - *Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist*
