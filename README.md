@@ -19,13 +19,12 @@
 
 - [Overview](#overview)
 - [Architecture](#architecture)
-- [What I Built (Step by Step)](#what-i-built-step-by-step)
-  - [Step 1: Provision the Management Machine](#step-1-provision-the-management-machine)
-  - [Step 2: Build the Container Image](#step-2-build-the-container-image)
-  - [Step 3: Push to Amazon ECR](#step-3-push-to-amazon-ecr)
-  - [Step 4: Create the EKS Cluster](#step-4-create-the-eks-cluster)
-  - [Step 5: Write Kubernetes Manifests](#step-5-write-kubernetes-manifests)
-  - [Step 6: Deploy and Verify](#step-6-deploy-and-verify)
+- [What I Built](#what-i-built)
+  - [Day 1: Provision the EKS Cluster](#day-1-provision-the-eks-cluster)
+  - [Day 2: Build the Container Image](#day-2-build-the-container-image)
+  - [Day 3: Push to Amazon ECR](#day-3-push-to-amazon-ecr)
+  - [Day 4: Write Manifests & Fix kubectl](#day-4-write-manifests--fix-kubectl)
+  - [Day 5: Deploy and Verify](#day-5-deploy-and-verify)
 - [Kubernetes Manifests](#kubernetes-manifests)
 - [Key Concepts Demonstrated](#key-concepts-demonstrated)
 - [What I Learned](#what-i-learned)
@@ -44,6 +43,8 @@ I deployed a production-ready Flask backend on Amazon EKS using Docker, Kubernet
 - Writing declarative Kubernetes manifests (Deployment and Service)
 - Deploying and managing containerized applications with kubectl
 - Exposing applications via NodePort Service for stable network access
+
+**Timeline:** 5 days. Each day had its own challenges. By the end, I had learned more about container orchestration in one week than in a month of tutorials.
 
 ---
 
@@ -98,9 +99,9 @@ User Access via NodeIP:30080
 
 ---
 
-## What I Built (Step by Step)
+## What I Built
 
-### Step 1: Provision the Management Machine
+### Day 1: Provision the EKS Cluster
 
 I used an EC2 instance (Amazon Linux 2) as my management machine. This is where all the tooling lives: eksctl for cluster management, kubectl for Kubernetes API communication, AWS CLI for authentication, Docker for building images, and Git for pulling source code.
 
@@ -116,14 +117,31 @@ chmod +x kubectl && sudo mv kubectl /usr/local/bin
 # Configure AWS credentials
 aws configure
 
-# Clone the backend code
-git clone https://github.com/nextwork-flask-backend.git
-cd nextwork-flask-backend
+# Create the EKS cluster (15-20 minutes)
+eksctl create cluster \
+    --name flask-backend-cluster \
+    --region us-east-1 \
+    --node-type t3.medium \
+    --nodes 3 \
+    --nodes-min 2 \
+    --nodes-max 5 \
+    --managed \
+    --full-ecr-access
 ```
 
-### Step 2: Build the Container Image
+The `--full-ecr-access` flag is key -- it automatically configures the worker node IAM role with permissions to pull images from ECR. No manual IAM policy attachment needed.
 
-Kubernetes doesn't run raw source code -- it orchestrates containers spawned from images. I built a Docker image that includes the Python interpreter, all dependencies from `requirements.txt`, and the runtime configuration. This creates a portable blueprint that behaves identically across any environment.
+Behind the scenes, eksctl uses CloudFormation to deploy the control plane, managed node groups, VPC, subnets, security groups, and IAM roles. Then I verified the nodes were ready:
+
+```bash
+kubectl get nodes
+```
+
+### Day 2: Build the Container Image
+
+I built a container image because Kubernetes does not run raw source code -- it orchestrates containers spawned from images. My Flask backend exists as Python files on my EC2 instance, but EKS needs a self-contained artifact that includes the interpreter, all dependencies from requirements.txt, and the runtime configuration.
+
+By building the image with Docker, I created a portable blueprint that behaves identically across any environment. Whether Kubernetes schedules it on node one or node fifty, the container starts from the same image and runs the exact same code with the same dependencies. This eliminates the "works on my machine" problem and ensures consistency.
 
 ```dockerfile
 FROM python:3.11-slim
@@ -139,9 +157,13 @@ CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "app:app"]
 docker build -t flask-backend:latest .
 ```
 
-### Step 3: Push to Amazon ECR
+### Day 3: Push to Amazon ECR
 
-The EKS cluster needs access to the container image. I pushed it to Amazon ECR -- a private container registry integrated with AWS IAM. Worker nodes authenticate via IAM roles, so there's no manual credential management.
+The reason I pushed the container image to ECR is that Kubernetes clusters require a centralized registry where containers can be pulled to run the pods. Although the container image was created locally on the EC2, I needed the cluster's nodes to have access to the specific version of the image on demand.
+
+ECR offers centralized storage with its integration into AWS, and since my nodes are authenticated using IAM roles, there is no need to worry about credentials management or image copying manually. ECR also manages versioning by using image tagging. When I tag my container with the latest label, I refer to that tag in my Kubernetes deployment. Without ECR, I would be required to manually pre-load all of the nodes and make updates independently, which is not practical at all.
+
+**ECR is the key of my pipeline.**
 
 ```bash
 aws ecr create-repository --repository-name flask-backend --region us-east-1
@@ -150,59 +172,41 @@ docker tag flask-backend:latest <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/flask-
 docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/flask-backend:latest
 ```
 
-### Step 4: Create the EKS Cluster
+### Day 4: Write Manifests & Fix kubectl
 
-I used eksctl to provision the entire EKS cluster. Behind the scenes, eksctl uses CloudFormation to deploy the control plane, managed node groups, VPC, subnets, security groups, and IAM roles. This step takes 15-20 minutes.
+This was the toughest day. I wrote the Deployment and Service YAML files, but then I had to figure out why kubectl couldn't find my cluster.
 
-```bash
-eksctl create cluster \
-    --name flask-backend-cluster \
-    --region us-east-1 \
-    --node-type t3.medium \
-    --nodes 3 \
-    --nodes-min 2 \
-    --nodes-max 5 \
-    --managed \
-    --full-ecr-access
-```
+At first, I installed kubectl and set it up as an executable program. Upon running `kubectl version`, the command was unsuccessful since kubectl could not figure out the location of my cluster -- it was searching for localhost:8080 while my cluster resides in AWS.
 
-The `--full-ecr-access` flag is key -- it automatically configures the worker node IAM role with permissions to pull images from ECR. No manual IAM policy attachment needed.
+The solution was running `aws eks update-kubeconfig`, which created the `.kube/config` file containing the cluster endpoint, certificate authority, and tokens needed for kubectl to access the EKS API server.
 
-### Step 5: Write Kubernetes Manifests
+**The manifest files I wrote:**
 
-I wrote two YAML manifests that declaratively define the desired state of my application.
+The Deployment manifest tells Kubernetes how my app should be deployed and scaled. It describes the desired state: what container image to use (ECR image), number of replicas, labels, and exposed ports. Upon applying it, the cluster control plane creates the corresponding Deployment object that ensures the actual state is always aligned with the declared one. If a pod fails, another is automatically created. If I update the image version, it rolls out an update.
 
-**Deployment Manifest** -- tells Kubernetes what to run:
-- Uses the ECR image
-- Runs 3 replicas for high availability
-- Exposes port 8080
-- Includes health checks (liveness and readiness probes)
-- Sets resource requests and limits
+The Service manifest provides a reliable network target that directs traffic to the group of pods. Pods are dynamic -- constantly created, killed, and rescheduled -- so their IPs keep changing. The Service provides one consistent IP address and uses labels to redirect traffic to the right pods. It works as a load balancer directing traffic to all healthy replicas.
 
-**Service Manifest** -- tells Kubernetes how to expose it:
-- Type: NodePort
-- Routes traffic to pods matching the `app: flask-backend` label
-- Exposes the service on port 30080 on every node
-
-### Step 6: Deploy and Verify
+### Day 5: Deploy and Verify
 
 ```bash
-# Fix kubectl cluster access (common issue)
+# Fix kubectl cluster access
 aws eks update-kubeconfig --region us-east-1 --name flask-backend-cluster
 
-# Deploy
+# Deploy the manifests
 kubectl apply -f flask-deployment.yaml
 kubectl apply -f flask-service.yaml
 
-# Verify
+# Verify everything is running
 kubectl get deployment flask-backend    # 3/3 replicas ready
 kubectl get pods -o wide                # All Running
 kubectl get service flask-service       # NodePort 30080
 
-# Test
+# Test the application
 curl http://<NODE_IP>:30080/
 # {"message":"Flask backend is running!","status":"healthy"}
 ```
+
+My backend was live. Three replicas running, NodePort service active, and the application responding to requests.
 
 ---
 
@@ -292,6 +296,13 @@ Pods are ephemeral -- their IP addresses change constantly. A NodePort Service p
 ### IAM Integration for ECR Access
 EKS worker nodes pull container images from ECR using IAM roles. No credentials to manage, no secrets to rotate. The `--full-ecr-access` flag on eksctl handles the IAM configuration automatically.
 
+### kubectl and eksctl
+The kubectl tool is the CLI for the Kubernetes API and is the primary means of provisioning and managing resources within a running Kubernetes cluster. Whereas eksctl takes care of the management of the EKS cluster itself -- setting up and tearing down infrastructure -- kubectl is responsible for provisioning resources within the application layer. It is the bridge from my YAML manifests into the API calls to set up Deployments, schedule pods, configure Services, and manage configuration.
+
+When I use `kubectl apply -f`, I am telling the cluster what I want the state of my application to be. Then the Kubernetes controller ensures that it achieves that state -- it provisions containers and distributes them among the nodes while ensuring the replica count I specified.
+
+**In summary: eksctl creates the platform. kubectl runs the applications on the platform.**
+
 ---
 
 ## What I Learned
@@ -305,6 +316,8 @@ EKS worker nodes pull container images from ECR using IAM roles. No credentials 
 **IAM and Security Integration:** Configuring ECR access through IAM roles instead of embedding credentials reinforced why AWS security design is elegant. No credentials to manage -- just roles doing their job.
 
 **Debugging:** I won't lie -- I got stuck. kubectl connection issues, pending pods, image pull errors. Every error taught me something, and by the end I could diagnose issues systematically. That's what production engineering looks like.
+
+**The 5-Day Timeline:** Day 1 was provisioning the cluster and waiting for CloudFormation. Day 2 was Docker -- installing it, adding ec2-user to the docker group, getting the first build done. Day 3 was ECR -- creating the repository, authenticating, pushing the image. Day 4 was the toughest -- creating YAML files and figuring out why kubectl couldn't find my cluster. Day 5 was the celebration -- applying manifests, watching pods come up, and testing the NodePort. 5 days might seem a lot, but I learned more about container orchestration in this week than in a month of tutorials.
 
 ---
 
