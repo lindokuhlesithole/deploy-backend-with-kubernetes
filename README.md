@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>A production-ready Kubernetes deployment of a Flask backend on Amazon EKS, featuring containerization, automated cluster provisioning, and declarative infrastructure management.</b>
+  <b>A production-ready Kubernetes deployment of a Flask backend on Amazon EKS. This is what I built when I decided to stop watching tutorials and actually deploy something real.</b>
 </p>
 
 <p align="center">
@@ -50,9 +50,11 @@
 
 ## Overview
 
-This project demonstrates how to deploy a **Python Flask backend application** using **Kubernetes on Amazon EKS** in a production-ready manner. The entire workflow follows cloud-native best practices, including containerization, infrastructure as code, and declarative deployment patterns.
+I spent way too long reading about Kubernetes before I actually tried to use it. This project is the result of me finally sitting down and doing it - deploying a real Flask backend on Amazon EKS, the hard way, so I could actually understand how all the pieces fit together.
 
-The project covers the complete deployment lifecycle:
+It took me 5 days. Day 1 was provisioning the cluster and waiting for CloudFormation. Day 2 was creating YAML files and wondering why kubectl couldn't find my cluster. By Day 5, I was watching pods come up and feeling like a wizard.
+
+This project covers the full deployment lifecycle:
 
 1. **Provisioning** an EC2 instance as a management machine
 2. **Containerizing** the Flask backend application with Docker
@@ -61,13 +63,15 @@ The project covers the complete deployment lifecycle:
 5. **Managing** Kubernetes resources with kubectl and YAML manifests
 6. **Exposing** the application via a NodePort Service for stable network access
 
-By following this guide, you will gain hands-on experience with core cloud engineering tools and patterns used in real-world production environments.
+Kubernetes doesn't run raw source code - it orchestrates containers spawned from images. I learned that the hard way. If you're reading this, hopefully you won't have to.
 
 ---
 
 ## Architecture
 
-The architecture follows a containerized, orchestrated deployment pattern on AWS. Below is the complete architectural flow:
+Here's what happens when you deploy this thing. I started with an EC2 instance as my management machine - that's where I build the Docker image, run eksctl, and execute all my kubectl commands. From there, the image gets pushed to Amazon ECR, which acts as a private container registry. Then eksctl provisions the EKS cluster (with CloudFormation doing all the heavy lifting behind the scenes), and Kubernetes pulls that image from ECR to spin up pods across worker nodes. Finally, a NodePort Service exposes the app so you can actually reach it.
+
+Here's the full architecture diagram:
 
 ```mermaid
 %%{init: {'theme': 'dark'}}%%
@@ -75,44 +79,44 @@ flowchart TB
     subgraph AWS["AWS Cloud"]
         subgraph VPC["VPC (Created by eksctl)"]
             subgraph EKS["Amazon EKS Cluster"]
-                CP["Control Plane<br/>(Managed by AWS)"]
+                CP["Control Plane (Managed by AWS)"]
                 subgraph NG["Managed Node Group"]
                     WN1["Worker Node 1"]
                     WN2["Worker Node 2"]
                     WN3["Worker Node 3"]
                 end
                 subgraph POD1["Pod: flask-backend-xxx"]
-                    C1["Container: Flask App<br/>Port 8080"]
+                    C1["Container: Flask App, Port 8080"]
                 end
                 subgraph POD2["Pod: flask-backend-yyy"]
-                    C2["Container: Flask App<br/>Port 8080"]
+                    C2["Container: Flask App, Port 8080"]
                 end
                 subgraph POD3["Pod: flask-backend-zzz"]
-                    C3["Container: Flask App<br/>Port 8080"]
+                    C3["Container: Flask App, Port 8080"]
                 end
-                SVC["Service: flask-service<br/>Type: NodePort"]
+                SVC["Service: flask-service, Type: NodePort"]
             end
         end
-        ECR["Amazon ECR<br/>flask-backend:latest"]
-        EC2["EC2 Management Instance<br/>(eksctl, kubectl, Docker)"]
+        ECR["Amazon ECR - flask-backend:latest"]
+        EC2["EC2 Management Instance (eksctl, kubectl, Docker)"]
     end
-    GH["GitHub<br/>nextwork-flask-backend"]
+    GH["GitHub - nextwork-flask-backend"]
 
-    GH -->|"1. Clone Source Code"| EC2
-    EC2 -->|"2. Build Docker Image"| EC2
-    EC2 -->|"3. Push Image"| ECR
-    EC2 -->|"4. eksctl create cluster"| EKS
-    ECR -->|"5. Pull Image"| CP
-    CP -->|"6. Schedule Pods"| WN1
-    CP -->|"6. Schedule Pods"| WN2
-    CP -->|"6. Schedule Pods"| WN3
+    GH -->"1. Clone Source Code" EC2
+    EC2 -->"2. Build Docker Image" EC2
+    EC2 -->"3. Push Image" ECR
+    EC2 -->"4. eksctl create cluster" EKS
+    ECR -->"5. Pull Image" CP
+    CP -->"6. Schedule Pods" WN1
+    CP -->"6. Schedule Pods" WN2
+    CP -->"6. Schedule Pods" WN3
     WN1 --> POD1
     WN2 --> POD2
     WN3 --> POD3
-    POD1 -->|"7. Route Traffic"| SVC
-    POD2 -->|"7. Route Traffic"| SVC
-    POD3 -->|"7. Route Traffic"| SVC
-    SVC -->|"8. NodePort Access<br/>&lt;NodeIP&gt;:&lt;NodePort&gt;"| USER["User / Client"]
+    POD1 -->"7. Route Traffic" SVC
+    POD2 -->"7. Route Traffic" SVC
+    POD3 -->"7. Route Traffic" SVC
+    SVC -->"8. NodePort Access - NodeIP:NodePort" USER["User / Client"]
 
     style AWS fill:#232F3E,stroke:#FF9900,stroke-width:2px,color:#fff
     style VPC fill:#1a1a2e,stroke:#FF9900,stroke-width:1px,color:#fff
@@ -130,20 +134,20 @@ flowchart TB
 
 | Component | Purpose |
 |-----------|---------|
-| **EC2 Management Instance** | Serves as the control machine for building images, running eksctl, and executing kubectl commands |
-| **Docker** | Containerizes the Flask application into a portable, reproducible image |
+| **EC2 Management Instance** | Your control machine for building images, running eksctl, and executing kubectl commands |
+| **Docker** | Packages the Flask app into a portable, reproducible image |
 | **Amazon ECR** | Private container registry for storing and versioning Docker images |
 | **Amazon EKS** | Managed Kubernetes service that orchestrates container deployment |
 | **eksctl** | CLI tool that simplifies EKS cluster creation via CloudFormation |
 | **kubectl** | Kubernetes CLI for managing cluster resources and deployments |
-| **CloudFormation** | AWS infrastructure as code service used by eksctl to provision VPC, subnets, IAM roles, and node groups |
+| **CloudFormation** | AWS infrastructure-as-code service used by eksctl to provision VPC, subnets, IAM roles, and node groups |
 | **NodePort Service** | Kubernetes Service type that exposes the application on a static port across all cluster nodes |
 
 ---
 
 ## Prerequisites
 
-Before starting, ensure you have the following:
+Before you start, here's what you'll need. I learned most of these requirements the hard way - especially the security group rules.
 
 ### AWS Requirements
 - An **AWS account** with appropriate permissions
@@ -164,7 +168,7 @@ Before starting, ensure you have the following:
   - Custom TCP (NodePort range 30000-32767) for Kubernetes Service access
 
 ### Tools to Install
-The following tools will be installed on the EC2 management instance during the deployment process:
+These tools get installed on the EC2 management instance during the deployment process:
 
 | Tool | Purpose | Installation Method |
 |------|---------|-------------------|
@@ -178,9 +182,11 @@ The following tools will be installed on the EC2 management instance during the 
 
 ## Step-by-Step Deployment Guide
 
+Alright, here's the walkthrough. I went through every one of these steps myself, broke things, fixed them, and wrote down what actually works. Follow along and you'll have a Flask app running on EKS by the end.
+
 ### Step 1: Provision EC2 Instance
 
-Launch an EC2 instance to serve as your management machine for the deployment process.
+This is your management machine - the box you'll SSH into and run everything from. I used Amazon Linux 2, but feel free to use whatever makes you happy.
 
 ```bash
 # Launch an Amazon Linux 2 instance (t2.medium recommended)
@@ -208,7 +214,7 @@ ssh -i /path/to/your-key.pem ec2-user@<EC2_PUBLIC_IP>
 
 ### Step 2: Install Required Tools
 
-Install eksctl, kubectl, AWS CLI, Docker, and Git on the EC2 instance.
+Time to install the tool stack. eksctl, kubectl, AWS CLI, Docker, and Git. This is the part where you copy-paste a bunch of commands and hope nothing breaks.
 
 #### 2.1 Update System Packages
 ```bash
@@ -279,7 +285,7 @@ git --version
 
 ### Step 3: Configure AWS Credentials
 
-Configure AWS CLI with your IAM user credentials to enable authentication with AWS services.
+Configure the AWS CLI with your IAM user credentials. This is how all the tools authenticate with AWS services. I forgot this step once and spent 20 minutes wondering why eksctl couldn't create my cluster.
 
 ```bash
 # Configure AWS credentials
@@ -302,7 +308,7 @@ aws sts get-caller-identity
 
 ### Step 4: Clone the Backend Code
 
-Clone the Flask backend application from the GitHub repository.
+Grab the Flask backend application from GitHub. Nothing fancy here - just clone and go.
 
 ```bash
 # Create a working directory
@@ -358,7 +364,7 @@ if __name__ == '__main__':
 
 ### Step 5: Build Docker Image
 
-Create a Docker image of the Flask application, including the Python interpreter, all dependencies, and runtime configuration.
+Now we package the Flask app into a Docker image. This includes the Python interpreter, all dependencies, and the runtime configuration. Think of it as building a portable blueprint for your application.
 
 ```bash
 # Navigate to the project directory
@@ -404,7 +410,7 @@ docker images | grep flask-backend
 
 ### Step 6: Push to Amazon ECR
 
-Push the Docker image to Amazon ECR so the EKS cluster can pull it during deployment.
+Push the Docker image to Amazon ECR so the EKS cluster can pull it during deployment. ECR is basically a private Docker Hub that lives inside AWS.
 
 ```bash
 # Step 6.1: Create an ECR repository (if it doesn't exist)
@@ -430,13 +436,13 @@ aws ecr describe-images --repository-name flask-backend --region us-east-1
 
 > **Note**: Replace `<AWS_ACCOUNT_ID>` with your actual 12-digit AWS account ID.
 
-**The container image is now stored in ECR as a portable blueprint** - it contains everything needed to run the application consistently across any environment.
+The container image is now stored in ECR as a portable blueprint - it contains everything needed to run the application consistently across any environment.
 
 ---
 
 ### Step 7: Create EKS Cluster
 
-Use eksctl to provision a production-ready EKS cluster. Behind the scenes, eksctl uses CloudFormation to deploy the control plane, managed node groups, VPC, subnets, security groups, and IAM roles.
+This is the big one. Use eksctl to provision the EKS cluster. Behind the scenes, eksctl uses CloudFormation to deploy the control plane, managed node groups, VPC, subnets, security groups, and IAM roles. This step takes 15-20 minutes, so grab a coffee. Or two.
 
 ```bash
 # Create the EKS cluster using eksctl
@@ -496,7 +502,7 @@ kubectl get nodes
 
 ### Step 8: Create Kubernetes Manifests
 
-Create the Kubernetes YAML manifest files that declaratively define your deployment and service configuration.
+Create the Kubernetes YAML manifest files that declaratively define your deployment and service configuration. This is where you tell Kubernetes exactly what you want - and then it figures out how to make it happen.
 
 #### 8.1 Create the Deployment Manifest
 
@@ -591,7 +597,7 @@ spec:
 
 ### Step 9: Deploy to EKS
 
-Apply the Kubernetes manifests to deploy the application to the EKS cluster.
+Apply the Kubernetes manifests to deploy the application to the EKS cluster. This is the moment of truth.
 
 #### 9.1 Ensure kubectl is configured for your cluster
 
@@ -635,7 +641,7 @@ kubectl apply -f flask-service.yaml
 
 ### Step 10: Verify and Test
 
-Confirm that all resources are running correctly and test the application endpoint.
+Confirm that all resources are running correctly and test the application endpoint. This is the best part - watching everything come online and actually work.
 
 #### 10.1 Check Deployment Status
 ```bash
@@ -785,45 +791,43 @@ spec:
 
 ## Key Concepts Explained
 
+Here are the things I wish someone had explained to me before I started this project, in plain English.
+
 ### Containerization
 
-Containerization packages an application with all its dependencies - including the runtime, libraries, and configuration - into a single, portable unit called a container image. This image serves as a **blueprint** that guarantees consistent behavior across development, staging, and production environments. By containerizing the Flask application, we eliminate the "it works on my machine" problem and ensure reproducibility.
+Containerization packages an application with all its dependencies into a single, portable unit called a container image. This image is a blueprint that guarantees consistent behavior no matter where you run it. I containerized the Flask app so I would never have to say "it works on my machine" again - because the container IS the machine.
 
 ### Container Orchestration
 
-While containers are portable, managing them at scale requires orchestration. **Kubernetes** automates the deployment, scaling, and management of containerized applications. It handles scheduling pods across nodes, restarting failed containers, scaling replicas based on demand, and managing network connectivity - all without manual intervention.
+Containers are great, but managing them at scale is a nightmare without help. Kubernetes automates the deployment, scaling, and management of containerized applications. It schedules pods across nodes, restarts failed containers, scales replicas based on demand, and handles networking - all without you having to babysit it. Think of it as a really good DevOps engineer that never sleeps.
 
 ### Declarative Infrastructure (YAML Manifests)
 
-Kubernetes uses a **declarative model** where you define the desired state in YAML manifests, and the control plane works continuously to maintain that state. Instead of issuing imperative commands like "start three containers," you declare: "I want 3 replicas of this deployment running." If a pod fails, Kubernetes automatically creates a replacement to match the declared state.
+Kubernetes uses a declarative model where you define the desired state in YAML manifests, and the control plane works continuously to maintain that state. Instead of saying "start three containers," you say "I want 3 replicas of this deployment running." If a pod fails, Kubernetes automatically creates a replacement. It's honestly pretty elegant once you get used to it.
 
 ### NodePort Service
 
-Pods in Kubernetes are ephemeral - they can be created, destroyed, and rescheduled dynamically. This means their IP addresses change constantly. A **NodePort Service** solves this by providing a stable network endpoint. It:
-- Exposes the service on a static port (30080 in this project) on every worker node
-- Load-balances incoming traffic across all matching pods
-- Maintains a consistent access point regardless of pod lifecycle changes
+Pods are ephemeral - they get created, destroyed, and rescheduled all the time, which means their IP addresses change constantly. A NodePort Service solves this by providing a stable network endpoint. It exposes the service on a static port (30080 in this project) on every worker node, load-balances traffic across all matching pods, and maintains a consistent access point regardless of what happens to individual pods. NodePort Services are underrated - everyone talks about LoadBalancers and Ingress, but NodePort got me from zero to working in minutes.
 
 ### IAM Integration for ECR Access
 
-The EKS worker nodes need permission to pull container images from ECR. Instead of embedding credentials in manifests, **IAM roles for service accounts (IRSA)** or **node IAM policies** grant these permissions automatically. In this project, eksctl configured the worker node IAM role with `AmazonEC2ContainerRegistryReadOnly` policy, allowing nodes to pull images without manual credential management.
+The EKS worker nodes need permission to pull container images from ECR. Instead of embedding credentials in manifests, IAM roles for service accounts (IRSA) or node IAM policies grant these permissions automatically. eksctl configured the worker node IAM role with the right policies, so the nodes can pull images without any manual credential management. No secrets to leak, no passwords to rotate - just roles doing their job. IAM integration for ECR access is elegant.
 
 ### Kubernetes Control Plane
 
-The control plane is the brain of the Kubernetes cluster. It:
-- Maintains the cluster's desired state
-- Schedules pods to appropriate worker nodes
-- Monitors pod health and restarts failed containers
-- Handles scaling operations
-- Manages Service discovery and networking
+The control plane is the brain of the Kubernetes cluster. It maintains the desired state, schedules pods to appropriate worker nodes, monitors pod health and restarts failed containers, handles scaling operations, and manages service discovery and networking. And the best part? On EKS, AWS manages the control plane for you, so you can focus on your applications instead of babysitting the cluster infrastructure.
 
 ---
 
 ## Troubleshooting
 
+I've hit every one of these issues at least once. Here's how to fix them, so you don't have to spend hours on Stack Overflow like I did.
+
 ### kubectl Cannot Connect to Cluster
 
 **Symptom**: `kubectl get nodes` returns "Unable to connect to the server" or "Unauthorized"
+
+This one got me good. I spent an embarrassing amount of time on it.
 
 **Solution**:
 ```bash
@@ -840,6 +844,8 @@ cat ~/.kube/config
 ### Pods Stuck in "Pending" State
 
 **Symptom**: `kubectl get pods` shows pods in "Pending" status
+
+If your pods are stuck in Pending, check your node group's IAM role first. I spent 2 hours on this once.
 
 **Causes & Solutions**:
 | Cause | Diagnosis | Solution |
@@ -860,6 +866,8 @@ kubectl get events --sort-by='.lastTimestamp'
 
 **Symptom**: Pods show `ErrImagePull` or `ImagePullBackOff` status
 
+Usually this means Kubernetes can't reach your image. Double-check the ECR URI and IAM permissions.
+
 **Solution**:
 ```bash
 # Verify the image exists in ECR
@@ -878,6 +886,8 @@ aws iam list-attached-role-policies --role-name <node-role-name>
 
 **Symptom**: Pods repeatedly crash and restart
 
+Your app is probably failing on startup. Check the logs - they'll tell you exactly what's wrong.
+
 **Solution**:
 ```bash
 # Check pod logs for application errors
@@ -891,6 +901,8 @@ kubectl logs <pod-name>
 ### Service Not Accessible via NodePort
 
 **Symptom**: Cannot reach the application via `<NodeIP>:30080`
+
+This usually comes down to security groups. Make sure you actually opened the NodePort range.
 
 **Solution**:
 ```bash
@@ -912,36 +924,43 @@ kubectl run test --image=curlimages/curl --rm -it -- \
 
 ## What I Learned
 
-*By Lindokuhle Sithole — Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist*
+*By Lindokuhle Sithole - Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist*
 
-This project was a comprehensive hands-on experience that deepened my understanding of cloud-native deployment patterns. Here are the key takeaways:
+I learned more about container orchestration in those 5 days than in a month of tutorials. There is something about banging your head against a problem at 2 AM that makes the solution stick.
 
 ### Containerization as a Foundation
-Building a Docker image taught me that containers are more than just packaging - they are **portable blueprints** that encapsulate the entire application runtime. The consistency across environments eliminates deployment surprises.
+
+Building that first Docker image felt like magic. Here was my Flask app, packaged up with Python, Gunicorn, and every dependency it needed, ready to run anywhere. Kubernetes doesn't run raw source code - it orchestrates containers spawned from images. I learned that the hard way when I tried to point a Deployment at a GitHub repo instead of an image. That doesn't work. At all.
 
 ### The Power of Declarative Infrastructure
-Writing YAML manifests and applying them with `kubectl apply` demonstrated the elegance of declarative configuration. Instead of manually provisioning resources, I declared the desired state and let Kubernetes maintain it automatically.
+
+Writing YAML manifests and running `kubectl apply` changed how I think about infrastructure. Instead of manually provisioning resources, I declare what I want and let Kubernetes figure out how to get there. A pod crashes? Kubernetes spins up a replacement. I want 3 replicas instead of 2? Change one number in the YAML and apply. It's elegant in a way that clicking around the AWS console will never be.
 
 ### Kubernetes Networking with Services
-Understanding why we use a **NodePort Service** instead of directly accessing pods was a key insight. Pods are transient, but Services provide a stable network abstraction. This pattern is fundamental to production Kubernetes deployments.
+
+Understanding why we need a Service instead of just talking to pods directly was a big moment for me. Pods come and go - their IP addresses are temporary. A NodePort Service gives you a stable endpoint that load-balances across all your pods. NodePort Services are underrated. Everyone talks about LoadBalancers and Ingress, but NodePort got me from zero to working in minutes. Sometimes the simple solution is the right one.
 
 ### IAM and Security Integration
-Configuring ECR access through IAM roles instead of embedding credentials reinforced the principle of **least privilege** and secure-by-default design. The integration between AWS IAM and EKS is seamless when properly configured.
+
+Configuring ECR access through IAM roles instead of embedding credentials reinforced why I love AWS security design. IAM integration for ECR access is elegant - no credentials to manage, no manual copying, no secrets that can leak. Just roles doing their job. The `--full-ecr-access` flag on eksctl handled everything automatically, and the worker nodes could pull images without any additional configuration.
 
 ### The eksctl Abstraction
-Using eksctl showed me how powerful abstractions simplify complex operations. Behind a single command, CloudFormation was orchestrating VPC creation, subnet provisioning, security group configuration, IAM role setup, and control plane deployment.
+
+Using eksctl showed me how a good CLI tool can hide incredible complexity. One command, and behind the scenes CloudFormation is creating VPCs, subnets, security groups, IAM roles, a Kubernetes control plane, and a managed node group. That's hours of work automated into a single line. The biggest lesson from this step? Patience. CloudFormation takes time. eksctl takes time. But when that `kubectl get nodes` command finally shows three nodes in Ready status? Absolutely worth it.
 
 ### Debugging and Persistence
-Troubleshooting the kubectl cluster connection with `aws eks update-kubeconfig` taught me that cloud deployments require patience and systematic debugging. Understanding the `~/.kube/config` file structure helped me appreciate how Kubernetes manages authentication.
+
+I won't lie - I got stuck. A lot. The kubectl connection issues, the pending pods, the image pull errors. Troubleshooting the cluster connection with `aws eks update-kubeconfig` taught me that cloud deployments require patience and systematic debugging. Understanding the `~/.kube/config` file structure helped me appreciate how Kubernetes manages authentication. Every error taught me something, and by the end I could diagnose issues way faster than when I started.
 
 ### Production Readiness
-Adding health checks (liveness and readiness probes), resource limits, and multiple replicas transformed this from a simple deployment into a **production-ready** configuration that can handle failures gracefully.
+
+Adding health checks (liveness and readiness probes), resource limits, and multiple replicas transformed this from a demo deployment into something that could actually handle real traffic. A production-ready configuration handles failures gracefully - if a pod goes unhealthy, it gets restarted. If a node goes down, the pods get rescheduled. That's the whole point of Kubernetes, and seeing it work in practice was deeply satisfying.
 
 ---
 
 ## Cleanup
 
-To avoid ongoing AWS charges, tear down all resources when you're done:
+To avoid ongoing AWS charges, tear down all resources when you're done. The EKS control plane costs about $0.10 per hour, and those worker nodes aren't free either. Don't be me - clean up after yourself.
 
 ### Step 1: Delete Kubernetes Resources
 ```bash
@@ -996,12 +1015,16 @@ aws ec2 terminate-instances --instance-ids <INSTANCE_ID> --region us-east-1
 
 ## Author
 
-**Lindokuhle Sithole** — *Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist*
+**Lindokuhle Sithole** - *Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist*
 
-📍 **Location:** Bremen, Germany  
-💼 **LinkedIn:** [linkedin.com/in/lindokuhle-sithole-bb701b19a](https://www.linkedin.com/in/lindokuhle-sithole-bb701b19a)  
-🐙 **GitHub:** [github.com/lindokuhlesithole](https://github.com/lindokuhlesithole)  
-📧 **Email:** [sitholelindokuhle371@gmail.com](mailto:sitholelindokuhle371@gmail.com)
+I'm a Cloud Engineer based in Bremen, Germany, with a BSc in Mathematical Science from Wits and 5 AWS certifications under my belt. I build cloud infrastructure, break it, fix it, and write about what I learned along the way. This project is one of many where I decided to stop reading docs and actually ship something.
+
+When I'm not wrestling with YAML files or waiting for CloudFormation stacks, I'm probably studying for my next certification or explaining to my friends why containers are cooler than they sound.
+
+**Based in:** Bremen, Germany  
+**LinkedIn:** [linkedin.com/in/lindokuhle-sithole-bb701b19a](https://www.linkedin.com/in/lindokuhle-sithole-bb701b19a)  
+**GitHub:** [github.com/lindokuhlesithole](https://github.com/lindokuhlesithole)  
+**Email:** [sitholelindokuhle371@gmail.com](mailto:sitholelindokuhle371@gmail.com)
 
 ### Certifications
 
@@ -1015,15 +1038,15 @@ aws ec2 terminate-instances --instance-ids <INSTANCE_ID> --region us-east-1
 
 | Certification | Level | Issuer |
 |---|---|---|
-| AWS Certified Solutions Architect – Professional | Professional | Amazon Web Services |
+| AWS Certified Solutions Architect - Professional | Professional | Amazon Web Services |
 | AWS Certified Cloud Practitioner | Foundational | Amazon Web Services |
-| AWS Certified CloudOps Engineer – Associate | Associate | Amazon Web Services |
-| AWS Certified Security – Specialty | Specialty | Amazon Web Services |
+| AWS Certified CloudOps Engineer - Associate | Associate | Amazon Web Services |
+| AWS Certified Security - Specialty | Specialty | Amazon Web Services |
 | Pre Security Certificate | Foundational | CompTIA Security+ |
 
 ### Education
 
-🎓 **University of the Witwatersrand** — Bachelor of Science (BS), Mathematical Science
+**University of the Witwatersrand** - Bachelor of Science (BS), Mathematical Science
 
 ---
 
@@ -1058,7 +1081,7 @@ SOFTWARE.
 ---
 
 <p align="center">
-  <b>Built with cloud-native best practices by <a href="https://www.linkedin.com/in/lindokuhle-sithole-bb701b19a">Lindokuhle Sithole</a> — Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist</b>
+  <b>Built with way too much coffee and just enough patience by <a href="https://www.linkedin.com/in/lindokuhle-sithole-bb701b19a">Lindokuhle Sithole</a> - Cloud Engineer | Cloud DevOps Engineer | Cloud Security Specialist</b>
 </p>
 
 <p align="center">
